@@ -48,12 +48,12 @@ export default {
     reopen: "사용 가이드",
     steps: {
       welcome: {
-        title: "WeKnora에 오신 것을 환영합니다",
+        title: "Binqsoft에 오신 것을 환영합니다",
         desc: "몇 단계만으로 지식 베이스, 대화, 에이전트의 핵심 사용법을 안내합니다. '다음'을 눌러 시작하세요.",
       },
       knowledge: {
         title: "지식 베이스 만들기",
-        desc: "모든 것의 시작점입니다. 문서, 웹페이지, FAQ를 업로드하면 WeKnora가 자동으로 분석하고 색인합니다. 여기를 클릭해 지식 베이스로 이동하세요.",
+        desc: "모든 것의 시작점입니다. 문서, 웹페이지, FAQ를 업로드하면 Binqsoft가 자동으로 분석하고 색인합니다. 여기를 클릭해 지식 베이스로 이동하세요.",
       },
       chat: {
         title: "AI 대화 시작하기",
@@ -1481,7 +1481,7 @@ export default {
   },
   initialization: {
     title: "초기화",
-    welcome: "WeKnora에 오신 것을 환영합니다",
+    welcome: "Binqsoft에 오신 것을 환영합니다",
     description: "사용을 시작하려면 먼저 시스템을 구성하세요",
     step1: "1단계: LLM 모델 구성",
     step2: "2단계: 임베딩 모델 구성",
@@ -2341,9 +2341,9 @@ export default {
     loadingInfo: "정보 로딩 중...",
     retry: "재시도",
     versionLabel: "앱 버전",
-    versionDescription: "애플리케이션 서비스(weknora-app)의 버전 번호",
+    versionDescription: "애플리케이션 서비스(binqsoft-app)의 버전 번호",
     frontendVersionLabel: "UI 버전",
-    frontendVersionDescription: "UI(weknora-ui) 빌드 버전 번호",
+    frontendVersionDescription: "UI(binqsoft-ui) 빌드 버전 번호",
     versionMismatch: "앱 버전과 일치하지 않음",
     buildTimeLabel: "빌드 시간",
     buildTimeDescription: "시스템이 빌드된 시간",
@@ -3048,7 +3048,7 @@ export default {
     },
   },
   createChat: {
-    title: "안녕하세요, WeKnora입니다 — 당신의 지식을 손끝에",
+    title: "안녕하세요, Binqsoft입니다 — 당신의 지식을 손끝에",
     newSessionTitle: "새 세션",
     messages: {
       selectKnowledgeBase: "먼저 지식베이스를 선택해주세요",
