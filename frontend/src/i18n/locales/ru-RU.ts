@@ -1818,7 +1818,19 @@ export default {
     loginError: 'Ошибка входа, пожалуйста, проверьте электронную почту или пароль',
     loginErrorRetry: 'Ошибка входа, пожалуйста, повторите попытку позже',
     registerError: 'Ошибка регистрации, пожалуйста, повторите попытку позже',
-    forgotPasswordNotAvailable: 'Функция восстановления пароля временно недоступна, пожалуйста, свяжитесь с администратором'
+    forgotPasswordNotAvailable: 'Функция восстановления пароля временно недоступна, пожалуйста, свяжитесь с администратором',
+    forgotPasswordDescription: 'Введите email учётной записи, и мы отправим ссылку для сброса пароля',
+    forgotPasswordSent: 'Если такой email существует, ссылка для сброса уже отправлена',
+    forgotPasswordRequestFailed: 'Не удалось отправить ссылку для сброса',
+    emailNotFound: 'Учётная запись с таким email не зарегистрирована',
+    resetTokenInvalid: 'Ссылка для сброса недействительна или устарела. Запросите новую',
+    resetPasswordTitle: 'Сброс пароля',
+    resetPasswordDescription: 'Задайте новый пароль для своей учётной записи',
+    resetPasswordAction: 'Подтвердить сброс',
+    resetPasswordSuccess: 'Пароль сброшен, войдите с новым паролем',
+    resetPasswordFailed: 'Не удалось сбросить пароль',
+    sendResetLink: 'Отправить ссылку',
+    newPassword: 'Новый пароль',
   },
   authStore: {
     errors: {

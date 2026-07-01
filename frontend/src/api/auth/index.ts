@@ -263,6 +263,7 @@ export async function getOIDCConfig(): Promise<OIDCConfigResponse> {
 export interface AuthConfigResponse {
   success: boolean
   registration_mode: 'self_serve' | 'invite_only' | string
+  password_reset_enabled?: boolean
 }
 
 export async function getAuthConfig(): Promise<AuthConfigResponse> {
@@ -271,6 +272,71 @@ export async function getAuthConfig(): Promise<AuthConfigResponse> {
     return response as unknown as AuthConfigResponse
   } catch {
     return { success: false, registration_mode: 'self_serve' }
+  }
+}
+
+export interface ForgotPasswordRequest {
+  email: string
+}
+
+export interface ResetPasswordRequest {
+  token: string
+  new_password: string
+}
+
+function getAuthErrorDetail(error: any): string {
+  const detail = error?.error?.details ?? error?.details
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim()
+  }
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message.trim()
+  }
+  return ''
+}
+
+export async function forgotPassword(data: ForgotPasswordRequest): Promise<{ success: boolean; message?: string }> {
+  try {
+    const response = await post('/api/v1/auth/forgot-password', data)
+    return {
+      ...(response as unknown as { success: boolean; message?: string }),
+      message: t('auth.forgotPasswordSent'),
+    }
+  } catch (error: any) {
+    const detail = getAuthErrorDetail(error)
+    if (detail === 'email not found') {
+      return { success: false, message: t('auth.emailNotFound') }
+    }
+    if (detail === 'email is required') {
+      return { success: false, message: t('auth.emailRequired') }
+    }
+    if (detail === 'password reset is not configured') {
+      return { success: false, message: t('auth.forgotPasswordNotAvailable') }
+    }
+    return { success: false, message: t('auth.forgotPasswordRequestFailed') }
+  }
+}
+
+export async function resetPassword(data: ResetPasswordRequest): Promise<{ success: boolean; message?: string }> {
+  try {
+    const response = await post('/api/v1/auth/reset-password', data)
+    return {
+      ...(response as unknown as { success: boolean; message?: string }),
+      message: t('auth.resetPasswordSuccess'),
+    }
+  } catch (error: any) {
+    const detail = getAuthErrorDetail(error)
+    if (
+      detail === 'reset token is required' ||
+      detail === 'invalid or expired reset token' ||
+      detail === 'user not found'
+    ) {
+      return { success: false, message: t('auth.resetTokenInvalid') }
+    }
+    if (detail === 'password reset is not configured') {
+      return { success: false, message: t('auth.forgotPasswordNotAvailable') }
+    }
+    return { success: false, message: t('auth.resetPasswordFailed') }
   }
 }
 

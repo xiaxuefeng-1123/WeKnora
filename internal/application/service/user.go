@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strings"
@@ -593,6 +595,125 @@ func (s *userService) ChangePassword(ctx context.Context, userID string, oldPass
 	user.UpdatedAt = time.Now()
 
 	return s.userRepo.UpdateUser(ctx, user)
+}
+
+func (s *userService) RequestPasswordReset(ctx context.Context, email string) error {
+	if s.config == nil || s.config.Auth == nil || !s.config.Auth.PasswordResetEnabled() {
+		return errors.New("password reset is not configured")
+	}
+	normalizedEmail := strings.TrimSpace(strings.ToLower(email))
+	if normalizedEmail == "" {
+		return errors.New("email is required")
+	}
+	user, err := s.userRepo.GetUserByEmail(ctx, normalizedEmail)
+	if err != nil || user == nil || !user.IsActive {
+		return errors.New("email not found")
+	}
+	if tokens, err := s.tokenRepo.GetTokensByUserID(ctx, user.ID); err == nil {
+		now := time.Now()
+		for _, token := range tokens {
+			if token == nil || token.TokenType != "password_reset" || token.IsRevoked || token.ExpiresAt.Before(now) {
+				continue
+			}
+			token.IsRevoked = true
+			token.UpdatedAt = now
+			_ = s.tokenRepo.UpdateToken(ctx, token)
+		}
+	}
+	resetToken, err := generateRandomString(48)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	expiresAt := now.Add(s.config.Auth.PasswordResetTTL())
+	if err := s.tokenRepo.CreateToken(ctx, &types.AuthToken{
+		ID: uuid.New().String(), UserID: user.ID, Token: resetToken, TokenType: "password_reset",
+		ExpiresAt: expiresAt, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		return err
+	}
+	return s.sendPasswordResetEmail(user.Email, resetToken)
+}
+
+func (s *userService) ResetPasswordWithToken(ctx context.Context, tokenValue, newPassword string) error {
+	if strings.TrimSpace(tokenValue) == "" {
+		return errors.New("reset token is required")
+	}
+	token, err := s.tokenRepo.GetTokenByValue(ctx, strings.TrimSpace(tokenValue))
+	if err != nil || token == nil || token.TokenType != "password_reset" || token.IsRevoked || time.Now().After(token.ExpiresAt) {
+		return errors.New("invalid or expired reset token")
+	}
+	user, err := s.userRepo.GetUserByID(ctx, token.UserID)
+	if err != nil || user == nil {
+		return errors.New("user not found")
+	}
+	if !user.IsActive {
+		return errors.New("account is disabled")
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	user.PasswordHash = string(hashedPassword)
+	user.UpdatedAt = now
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		return err
+	}
+	token.IsRevoked = true
+	token.UpdatedAt = now
+	if err := s.tokenRepo.UpdateToken(ctx, token); err != nil {
+		return err
+	}
+	return s.tokenRepo.RevokeTokensByUserID(ctx, user.ID)
+}
+
+func (s *userService) sendPasswordResetEmail(email, resetToken string) error {
+	if s.config == nil || s.config.Auth == nil || !s.config.Auth.PasswordResetEnabled() {
+		return errors.New("password reset is not configured")
+	}
+	frontendBase := strings.TrimRight(strings.TrimSpace(s.config.FrontendBaseURL), "/")
+	if frontendBase == "" {
+		frontendBase = "http://localhost"
+	}
+	resetURL := frontendBase + "/login?mode=reset&reset_token=" + url.QueryEscape(resetToken)
+	subject := "WeKnora password reset"
+	expiresInMinutes := int(s.config.Auth.PasswordResetTTL().Minutes())
+	plainBody := strings.Join([]string{
+		"To reset your password, open the link below:",
+		resetURL,
+		"",
+		fmt.Sprintf("This link expires in %d minutes.", expiresInMinutes),
+		"If you did not request this change, you can ignore this email.",
+	}, "\r\n")
+	htmlBody := strings.Join([]string{
+		"<html><body>",
+		"<p>To reset your password, click the link below:</p>",
+		fmt.Sprintf("<p><a href=\"%s\">Reset your password</a></p>", html.EscapeString(resetURL)),
+		fmt.Sprintf("<p>If the button does not work, copy and paste this link into your browser:<br><a href=\"%s\">%s</a></p>", html.EscapeString(resetURL), html.EscapeString(resetURL)),
+		fmt.Sprintf("<p>This link expires in %d minutes.</p>", expiresInMinutes),
+		"<p>If you did not request this change, you can ignore this email.</p>",
+		"</body></html>",
+	}, "")
+	boundary := "weknora-password-reset-boundary"
+	message := []byte("From: " + s.config.Auth.SMTPFrom + "\r\n" +
+		"To: " + email + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/alternative; boundary=" + boundary + "\r\n\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" +
+		plainBody + "\r\n\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n\r\n" +
+		htmlBody + "\r\n\r\n" +
+		"--" + boundary + "--\r\n")
+	addr := fmt.Sprintf("%s:%d", s.config.Auth.SMTPHost, s.config.Auth.SMTPPort)
+	var auth smtp.Auth
+	if strings.TrimSpace(s.config.Auth.SMTPUsername) != "" {
+		auth = smtp.PlainAuth("", s.config.Auth.SMTPUsername, s.config.Auth.SMTPPassword, s.config.Auth.SMTPHost)
+	}
+	return smtp.SendMail(addr, auth, s.config.Auth.SMTPFrom, []string{email}, message)
 }
 
 // ValidatePassword validates user password

@@ -601,6 +601,52 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 // @Failure      400      {object}  errors.AppError                                  "请求参数错误"
 // @Security     Bearer
 // @Router       /auth/change-password [post]
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req types.ForgotPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		appErr := errors.NewValidationError("Invalid forgot password request").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	if err := h.userService.RequestPasswordReset(ctx, req.Email); err != nil {
+		logger.Errorf(ctx, "Failed to request password reset: %v", err)
+		appErr := errors.NewBadRequestError("Password reset request failed").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "If the email exists, a password reset link has been sent",
+	})
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req types.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		appErr := errors.NewValidationError("Invalid reset password request").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	if err := h.userService.ResetPasswordWithToken(ctx, req.Token, req.NewPassword); err != nil {
+		logger.Errorf(ctx, "Failed to reset password: %v", err)
+		appErr := errors.NewBadRequestError("Password reset failed").WithDetails(err.Error())
+		c.Error(appErr)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Password reset successfully",
+	})
+}
+
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -661,8 +707,9 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 	// signal can never disagree with the API enforcement signal.
 	mode := h.resolveRegistrationMode(c.Request.Context())
 	c.JSON(http.StatusOK, gin.H{
-		"success":           true,
-		"registration_mode": mode,
+		"success":                true,
+		"registration_mode":      mode,
+		"password_reset_enabled": h.configInfo != nil && h.configInfo.Auth != nil && h.configInfo.Auth.PasswordResetEnabled(),
 	})
 }
 

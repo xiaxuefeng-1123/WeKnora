@@ -35,6 +35,11 @@ type UserService interface {
 	DeleteUser(ctx context.Context, id string) error
 	// ChangePassword changes user password
 	ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error
+	// RequestPasswordReset creates a one-time password reset token and, when configured,
+	// sends it to the user's email address. Unknown emails return success to avoid enumeration.
+	RequestPasswordReset(ctx context.Context, email string) error
+	// ResetPasswordWithToken validates a password-reset token and updates the user's password.
+	ResetPasswordWithToken(ctx context.Context, token, newPassword string) error
 	// ValidatePassword validates user password
 	ValidatePassword(ctx context.Context, userID string, password string) error
 	// GenerateTokens generates access and refresh tokens for user

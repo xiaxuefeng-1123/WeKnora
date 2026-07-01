@@ -1793,6 +1793,18 @@ export default {
     registerError: "가입 오류, 나중에 다시 시도해주세요",
     forgotPasswordNotAvailable:
       "비밀번호 찾기 기능을 현재 사용할 수 없습니다. 관리자에게 문의해주세요",
+    forgotPasswordDescription: "가입한 이메일을 입력하면 비밀번호 재설정 링크를 보내드립니다",
+    forgotPasswordSent: "해당 이메일이 존재하면 재설정 링크를 보냈습니다",
+    forgotPasswordRequestFailed: "재설정 링크 전송에 실패했습니다",
+    emailNotFound: "해당 이메일로 가입된 계정이 없습니다",
+    resetTokenInvalid: "재설정 링크가 유효하지 않거나 만료되었습니다. 다시 요청해주세요",
+    resetPasswordTitle: "비밀번호 재설정",
+    resetPasswordDescription: "계정에 사용할 새 비밀번호를 설정하세요",
+    resetPasswordAction: "비밀번호 재설정",
+    resetPasswordSuccess: "비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해 주세요",
+    resetPasswordFailed: "비밀번호 재설정에 실패했습니다",
+    sendResetLink: "재설정 링크 보내기",
+    newPassword: "새 비밀번호",
   },
   authStore: {
     errors: {

@@ -1799,6 +1799,18 @@ export default {
     loginErrorRetry: "登录错误，请稍后重试",
     registerError: "注册错误，请稍后重试",
     forgotPasswordNotAvailable: "密码找回功能暂不可用，请联系管理员",
+    forgotPasswordDescription: "输入注册邮箱，我们会向你发送密码重置链接",
+    forgotPasswordSent: "如果该邮箱存在，我们已发送密码重置链接",
+    forgotPasswordRequestFailed: "发送重置链接失败",
+    emailNotFound: "该邮箱未注册",
+    resetTokenInvalid: "重置链接无效或已过期，请重新申请",
+    resetPasswordTitle: "重置密码",
+    resetPasswordDescription: "为账号设置一个新密码",
+    resetPasswordAction: "确认重置密码",
+    resetPasswordSuccess: "密码已重置，请使用新密码登录",
+    resetPasswordFailed: "重置密码失败",
+    sendResetLink: "发送重置链接",
+    newPassword: "新密码",
   },
   authStore: {
     errors: {

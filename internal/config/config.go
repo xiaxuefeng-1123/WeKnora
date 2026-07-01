@@ -265,6 +265,26 @@ type AuthConfig struct {
 	//                            users only enter through the invitation
 	//                            flow added in PR 3.
 	RegistrationMode string `yaml:"registration_mode" json:"registration_mode"`
+	PasswordResetTokenTTLMinutes int    `yaml:"password_reset_token_ttl_minutes" json:"password_reset_token_ttl_minutes"`
+	SMTPHost                     string `yaml:"smtp_host" json:"smtp_host"`
+	SMTPPort                     int    `yaml:"smtp_port" json:"smtp_port"`
+	SMTPUsername                 string `yaml:"smtp_username" json:"smtp_username"`
+	SMTPPassword                 string `yaml:"smtp_password" json:"-"`
+	SMTPFrom                     string `yaml:"smtp_from" json:"smtp_from"`
+}
+
+func (c *AuthConfig) PasswordResetEnabled() bool {
+	if c == nil {
+		return false
+	}
+	return strings.TrimSpace(c.SMTPHost) != "" && c.SMTPPort > 0 && strings.TrimSpace(c.SMTPFrom) != ""
+}
+
+func (c *AuthConfig) PasswordResetTTL() time.Duration {
+	if c == nil || c.PasswordResetTokenTTLMinutes <= 0 {
+		return 30 * time.Minute
+	}
+	return time.Duration(c.PasswordResetTokenTTLMinutes) * time.Minute
 }
 
 // AuthRegistrationMode constants used by handlers and middleware.
@@ -615,6 +635,14 @@ func ValidateConfig(cfg *Config) error {
 			errs = append(errs, fmt.Sprintf("auth.registration_mode must be %q or %q, got %q",
 				AuthRegistrationModeSelfServe, AuthRegistrationModeInviteOnly, mode))
 		}
+		if cfg.Auth.PasswordResetTokenTTLMinutes < 0 {
+			errs = append(errs, "auth.password_reset_token_ttl_minutes must be >= 0")
+		}
+		if cfg.Auth.SMTPHost != "" || cfg.Auth.SMTPFrom != "" || cfg.Auth.SMTPPort != 0 || cfg.Auth.SMTPUsername != "" || cfg.Auth.SMTPPassword != "" {
+			if strings.TrimSpace(cfg.Auth.SMTPHost) == "" || cfg.Auth.SMTPPort <= 0 || strings.TrimSpace(cfg.Auth.SMTPFrom) == "" {
+				errs = append(errs, "auth.smtp_host, auth.smtp_port and auth.smtp_from are required when password reset email is configured")
+			}
+		}
 	}
 
 	if cfg.Audit != nil && cfg.Audit.RetentionDays < 0 {
@@ -812,6 +840,31 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 
 	if strings.TrimSpace(cfg.Auth.RegistrationMode) == "" {
 		cfg.Auth.RegistrationMode = AuthRegistrationModeSelfServe
+	}
+	if cfg.Auth.PasswordResetTokenTTLMinutes <= 0 {
+		cfg.Auth.PasswordResetTokenTTLMinutes = 30
+	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_PASSWORD_RESET_TOKEN_TTL_MINUTES")); value != "" {
+		if n, err := strconv.Atoi(value); err == nil && n > 0 {
+			cfg.Auth.PasswordResetTokenTTLMinutes = n
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_HOST")); value != "" {
+		cfg.Auth.SMTPHost = value
+	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_PORT")); value != "" {
+		if n, err := strconv.Atoi(value); err == nil && n > 0 {
+			cfg.Auth.SMTPPort = n
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_USERNAME")); value != "" {
+		cfg.Auth.SMTPUsername = value
+	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_PASSWORD")); value != "" {
+		cfg.Auth.SMTPPassword = value
+	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_FROM")); value != "" {
+		cfg.Auth.SMTPFrom = value
 	}
 
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_TENANT_ENABLE_RBAC")); value != "" {

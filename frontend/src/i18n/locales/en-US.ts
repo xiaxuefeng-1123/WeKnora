@@ -1948,7 +1948,19 @@ export default {
     loginError: 'Login error, please check email or password',
     loginErrorRetry: 'Login error, please try again later',
     registerError: 'Registration error, please try again later',
-    forgotPasswordNotAvailable: 'Password recovery function is temporarily unavailable, please contact administrator'
+    forgotPasswordNotAvailable: 'Password recovery function is temporarily unavailable, please contact administrator',
+    forgotPasswordDescription: 'Enter your account email and we will send you a reset link',
+    forgotPasswordSent: 'If the email exists, we have sent a password reset link',
+    forgotPasswordRequestFailed: 'Failed to send reset link',
+    emailNotFound: 'No account is registered with this email',
+    resetTokenInvalid: 'This reset link is invalid or has expired. Please request a new one',
+    resetPasswordTitle: 'Reset Password',
+    resetPasswordDescription: 'Set a new password for your account',
+    resetPasswordAction: 'Reset Password',
+    resetPasswordSuccess: 'Password reset successfully, please sign in again',
+    resetPasswordFailed: 'Failed to reset password',
+    sendResetLink: 'Send Reset Link',
+    newPassword: 'New Password',
   },
   authStore: {
     errors: {

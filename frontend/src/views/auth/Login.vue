@@ -176,7 +176,7 @@
     <div class="form-section">
       <div class="form-panel">
         <!-- Login Card -->
-        <div class="form-card" v-if="!isRegisterMode">
+        <div class="form-card" v-if="viewMode === 'login'">
           <div class="form-header">
             <h2 class="form-title">{{ $t('auth.login') }}</h2>
             <p class="form-welcome">{{ $t('auth.subtitle') }}</p>
@@ -198,6 +198,14 @@
               <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
                 {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
               </t-button>
+
+              <div class="form-footer form-footer--inline">
+                <span></span>
+                <a href="#" class="link-button"
+                  @click.prevent="passwordResetEnabled ? switchView('forgot') : MessagePlugin.warning($t('auth.forgotPasswordNotAvailable'))">
+                  {{ $t('auth.forgotPassword') }}
+                </a>
+              </div>
 
               <div class="register-cta" v-if="registrationEnabled">
                 <div class="register-cta__divider">
@@ -237,11 +245,70 @@
           </div>
         </div>
 
+        <div class="form-card" v-if="viewMode === 'forgot'">
+          <div class="form-header">
+            <h2 class="form-title">{{ $t('auth.forgotPassword') }}</h2>
+            <p class="form-subtitle">{{ $t('auth.forgotPasswordDescription') }}</p>
+          </div>
+
+          <div class="form-content">
+            <t-form ref="forgotFormRef" :data="forgotData" :rules="forgotRules" @submit="handleForgotPassword" layout="vertical">
+              <t-form-item :label="$t('auth.email')" name="email">
+                <t-input v-model="forgotData.email" :placeholder="$t('auth.emailPlaceholder')" type="text"
+                  autocomplete="email" size="large" :disabled="loading" />
+              </t-form-item>
+
+              <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
+                {{ loading ? $t('auth.submitting') : $t('auth.sendResetLink') }}
+              </t-button>
+            </t-form>
+
+            <div class="form-footer">
+              <span>{{ $t('auth.haveAccount') }}</span>
+              <a href="#" @click.prevent="switchView('login')" class="link-button">
+                {{ $t('auth.backToLogin') }}
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-card" v-if="viewMode === 'reset'">
+          <div class="form-header">
+            <h2 class="form-title">{{ $t('auth.resetPasswordTitle') }}</h2>
+            <p class="form-subtitle">{{ $t('auth.resetPasswordDescription') }}</p>
+          </div>
+
+          <div class="form-content">
+            <t-form ref="resetFormRef" :data="resetData" :rules="resetRules" @submit="handleResetPassword" layout="vertical">
+              <t-form-item :label="$t('auth.newPassword')" name="new_password">
+                <t-input v-model="resetData.new_password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
+                  autocomplete="new-password" size="large" :disabled="loading" />
+              </t-form-item>
+
+              <t-form-item :label="$t('auth.confirmPassword')" name="confirmPassword">
+                <t-input v-model="resetData.confirmPassword" :placeholder="$t('auth.confirmPasswordPlaceholder')"
+                  type="password" autocomplete="new-password" size="large" :disabled="loading" @enter="handleResetPassword" />
+              </t-form-item>
+
+              <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
+                {{ loading ? $t('auth.submitting') : $t('auth.resetPasswordAction') }}
+              </t-button>
+            </t-form>
+
+            <div class="form-footer">
+              <span>{{ $t('auth.haveAccount') }}</span>
+              <a href="#" @click.prevent="switchView('login')" class="link-button">
+                {{ $t('auth.backToLogin') }}
+              </a>
+            </div>
+          </div>
+        </div>
+
         <!-- Register Card. Renders when the user is in register mode
              AND either self-service registration is enabled OR they
              arrived with a valid share-link token (which bypasses the
              invite_only gate). -->
-        <div class="form-card" v-if="isRegisterMode && (registrationEnabled || inviteLookup)">
+        <div class="form-card" v-if="viewMode === 'register' && (registrationEnabled || inviteLookup)">
           <!-- Share-link banner: shown only when ?token= resolved to a
                real invitation row. Sits above the form header so the
                invitee instantly sees who invited them and into which
@@ -336,6 +403,8 @@ import 'swiper/css/pagination'
 import {
   login,
   register,
+  forgotPassword,
+  resetPassword,
   getOIDCAuthorizationURL,
   getOIDCConfig,
   autoSetup,
@@ -390,11 +459,13 @@ const slides = [
 // Form references
 const formRef = ref()
 const registerFormRef = ref()
+const forgotFormRef = ref()
+const resetFormRef = ref()
 
 // State management
 const loading = ref(false)
 const oidcLoading = ref(false)
-const isRegisterMode = ref(false)
+const viewMode = ref<'login' | 'register' | 'forgot' | 'reset'>('login')
 const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
@@ -402,6 +473,7 @@ const oidcProviderName = ref('')
 // link is visible; the actual mode is fetched from /auth/config in onMounted.
 // In invite_only mode the link/card are hidden.
 const registrationEnabled = ref(true)
+const passwordResetEnabled = ref(false)
 
 // invite-link state. When the URL carries ?token=xxx we resolve it to
 // the originating tenant + role and switch the form into a "register
@@ -435,6 +507,16 @@ const currentLangOption = computed(() => languageOptions.find(l => l.value === c
 const formData = reactive<{ [key: string]: any }>({
   email: '',
   password: '',
+})
+
+const forgotData = reactive<{ [key: string]: any }>({
+  email: '',
+})
+
+const resetData = reactive<{ [key: string]: any }>({
+  token: '',
+  new_password: '',
+  confirmPassword: '',
 })
 
 // Register form data
@@ -493,13 +575,46 @@ const registerRules = computed(() => ({
   ]
 }))
 
-// Toggle login/register mode
-const toggleMode = () => {
-  isRegisterMode.value = !isRegisterMode.value
+const forgotRules = computed(() => ({
+  email: [
+    { required: true, message: t('auth.emailRequired'), type: 'error' },
+    { email: true, message: t('auth.emailInvalid'), type: 'error' }
+  ]
+}))
 
-  Object.keys(registerData).forEach(key => {
-    (registerData as any)[key] = ''
-  })
+const resetRules = computed(() => ({
+  new_password: [
+    { required: true, message: t('auth.passwordRequired'), type: 'error' },
+    { min: 8, message: t('auth.passwordMinLength'), type: 'error' },
+    { max: 32, message: t('auth.passwordMaxLength'), type: 'error' },
+    { pattern: /[a-zA-Z]/, message: t('auth.passwordMustContainLetter'), type: 'error' },
+    { pattern: /\d/, message: t('auth.passwordMustContainNumber'), type: 'error' }
+  ],
+  confirmPassword: [
+    { required: true, message: t('auth.confirmPasswordRequired'), type: 'error' },
+    {
+      validator: (val: string) => val === resetData.new_password,
+      message: t('auth.passwordMismatch'),
+      type: 'error'
+    }
+  ]
+}))
+
+// Toggle login/register mode
+const switchView = (mode: 'login' | 'register' | 'forgot' | 'reset') => {
+  viewMode.value = mode
+  if (mode === 'forgot') {
+    forgotData.email = ''
+  }
+  if (mode !== 'register') {
+    Object.keys(registerData).forEach(key => {
+      (registerData as any)[key] = ''
+    })
+  }
+}
+
+const toggleMode = () => {
+  switchView(viewMode.value === 'register' ? 'login' : 'register')
 }
 
 // Toggle language menu
@@ -599,8 +714,10 @@ const loadAuthConfig = async () => {
   try {
     const response = await getAuthConfig()
     registrationEnabled.value = response.registration_mode !== 'invite_only'
+    passwordResetEnabled.value = response.password_reset_enabled === true
   } catch {
     registrationEnabled.value = true
+    passwordResetEnabled.value = false
   }
 }
 
@@ -651,6 +768,58 @@ const handleLogin = async () => {
   }
 }
 
+const handleForgotPassword = async () => {
+  try {
+    if (!passwordResetEnabled.value) {
+      MessagePlugin.error(t('auth.forgotPasswordNotAvailable'))
+      return
+    }
+
+    const valid = await forgotFormRef.value?.validate()
+    if (valid !== true) return
+
+    loading.value = true
+    const response = await forgotPassword({ email: forgotData.email })
+    if (response.success) {
+      MessagePlugin.success(response.message || t('auth.forgotPasswordSent'))
+      formData.email = forgotData.email
+      switchView('login')
+    } else {
+      MessagePlugin.error(response.message || t('auth.forgotPasswordRequestFailed'))
+    }
+  } catch (error: any) {
+    MessagePlugin.error(error.message || t('auth.forgotPasswordRequestFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleResetPassword = async () => {
+  try {
+    const valid = await resetFormRef.value?.validate()
+    if (valid !== true) return
+
+    loading.value = true
+    const response = await resetPassword({
+      token: resetData.token,
+      new_password: resetData.new_password,
+    })
+
+    if (response.success) {
+      MessagePlugin.success(response.message || t('auth.resetPasswordSuccess'))
+      resetData.new_password = ''
+      resetData.confirmPassword = ''
+      switchView('login')
+    } else {
+      MessagePlugin.error(response.message || t('auth.resetPasswordFailed'))
+    }
+  } catch (error: any) {
+    MessagePlugin.error(error.message || t('auth.resetPasswordFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
 // Handle registration. Dispatches based on whether the user arrived
 // with a share-link token: with token -> register-by-invite (auto-
 // login on success); without -> the normal self-service register
@@ -691,7 +860,7 @@ const handleRegister = async () => {
       MessagePlugin.success(t('auth.registerSuccess'))
 
       // Switch to login mode and fill in email
-      isRegisterMode.value = false
+      switchView('login')
       formData.email = registerData.email
 
       // Clear register form
@@ -719,6 +888,16 @@ onMounted(async () => {
   // redirect so an existing session doesn't bounce the user to
   // /platform (and possibly back to /login if the session is stale),
   // dropping the invite token along the way.
+  const resetTokenFromQuery = String(route.query.reset_token || '').trim()
+  const resetModeFromQuery = String(route.query.mode || '').trim()
+  if (resetModeFromQuery === 'reset' && resetTokenFromQuery) {
+    resetData.token = resetTokenFromQuery
+    loadOIDCConfig()
+    loadAuthConfig()
+    switchView('reset')
+    return
+  }
+
   const tokenFromQuery = String(route.query.token || '').trim()
   if (tokenFromQuery) {
     inviteToken.value = tokenFromQuery
@@ -730,7 +909,7 @@ onMounted(async () => {
         // Token bypasses invite_only — show the register card even
         // when self-service registration is otherwise disabled.
         registrationEnabled.value = true
-        isRegisterMode.value = true
+        switchView('register')
       } else {
         inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
       }
