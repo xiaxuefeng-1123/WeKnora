@@ -672,7 +672,7 @@ func (s *userService) sendPasswordResetEmail(email, resetToken string) error {
 	if s.config == nil || s.config.Auth == nil || !s.config.Auth.PasswordResetEnabled() {
 		return errors.New("password reset is not configured")
 	}
-	frontendBase := strings.TrimRight(strings.TrimSpace(s.config.FrontendBaseURL), "/")
+	frontendBase := passwordResetFrontendBaseURL(s.config)
 	if frontendBase == "" {
 		frontendBase = "http://localhost"
 	}
@@ -714,6 +714,17 @@ func (s *userService) sendPasswordResetEmail(email, resetToken string) error {
 		auth = smtp.PlainAuth("", s.config.Auth.SMTPUsername, s.config.Auth.SMTPPassword, s.config.Auth.SMTPHost)
 	}
 	return smtp.SendMail(addr, auth, s.config.Auth.SMTPFrom, []string{email}, message)
+}
+
+func passwordResetFrontendBaseURL(cfg *config.Config) string {
+	candidate := ""
+	if cfg != nil {
+		candidate = strings.TrimSpace(cfg.FrontendBaseURL)
+	}
+	if candidate == "" {
+		candidate = strings.TrimSpace(os.Getenv("FRONTEND_BASE_URL"))
+	}
+	return strings.TrimRight(candidate, "/")
 }
 
 // ValidatePassword validates user password
@@ -1400,3 +1411,4 @@ func isUserLookupNotFound(err error) bool {
 	}
 	return errors.Is(err, apprepo.ErrUserNotFound) || strings.Contains(strings.ToLower(err.Error()), "user not found")
 }
+
