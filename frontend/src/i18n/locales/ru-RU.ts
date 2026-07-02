@@ -1779,6 +1779,7 @@ export default {
     confirmPassword: 'Подтвердите пароль',
     rememberMe: 'Запомнить меня',
     forgotPassword: 'Забыли пароль?',
+    submitting: 'Отправка…',
     loginSuccess: 'Вход выполнен успешно!',
     loginSuccessTitle: 'Вход выполнен',
     loginSuccessContent: 'С возвращением. Вы вошли в {name}',

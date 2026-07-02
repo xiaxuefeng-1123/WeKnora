@@ -1746,6 +1746,7 @@ export default {
     confirmPassword: "비밀번호 확인",
     rememberMe: "로그인 상태 유지",
     forgotPassword: "비밀번호를 잊으셨나요?",
+    submitting: "전송 중…",
     loginSuccess: "로그인 성공!",
     loginSuccessTitle: "로그인 성공",
     loginSuccessContent: "환영합니다. {name} 에 입장했습니다",

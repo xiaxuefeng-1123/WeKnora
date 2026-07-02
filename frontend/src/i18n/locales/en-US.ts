@@ -1909,6 +1909,7 @@ export default {
     confirmPassword: 'Confirm Password',
     rememberMe: 'Remember Me',
     forgotPassword: 'Forgot Password?',
+    submitting: 'Submitting…',
     loginSuccess: 'Login successful!',
     loginSuccessTitle: 'Login successful',
     loginSuccessContent: 'Welcome back. You are now in {name}',

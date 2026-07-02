@@ -1753,6 +1753,7 @@ export default {
     confirmPassword: "确认密码",
     rememberMe: "记住我",
     forgotPassword: "忘记密码？",
+    submitting: "提交中…",
     loginSuccess: "登录成功！",
     loginSuccessTitle: "登录成功",
     loginSuccessContent: "欢迎，你已进入 {name}",
