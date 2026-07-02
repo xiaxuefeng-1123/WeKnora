@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -9,7 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
-    "mime"
+	"mime"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -714,7 +715,56 @@ func (s *userService) sendPasswordResetEmail(ctx context.Context, email, resetTo
 	if strings.TrimSpace(s.config.Auth.SMTPUsername) != "" {
 		auth = smtp.PlainAuth("", s.config.Auth.SMTPUsername, s.config.Auth.SMTPPassword, s.config.Auth.SMTPHost)
 	}
+	if s.config.Auth.SMTPUseSSL || s.config.Auth.SMTPPort == 465 {
+		return sendMailOverImplicitTLS(addr, s.config.Auth.SMTPHost, auth, s.config.Auth.SMTPFrom, []string{email}, message)
+	}
 	return smtp.SendMail(addr, auth, s.config.Auth.SMTPFrom, []string{email}, message)
+}
+
+func sendMailOverImplicitTLS(addr, host string, auth smtp.Auth, from string, to []string, message []byte) error {
+	tlsConfig := &tls.Config{
+		ServerName: host,
+		MinVersion: tls.VersionTLS12,
+	}
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	if auth != nil {
+		if ok, _ := client.Extension("AUTH"); ok {
+			if err := client.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range to {
+		if err := client.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := writer.Write(message); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func passwordResetFrontendBaseURL(cfg *config.Config) string {
@@ -1487,6 +1537,8 @@ func isUserLookupNotFound(err error) bool {
 	}
 	return errors.Is(err, apprepo.ErrUserNotFound) || strings.Contains(strings.ToLower(err.Error()), "user not found")
 }
+
+
 
 
 

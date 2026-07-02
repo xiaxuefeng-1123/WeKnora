@@ -271,6 +271,7 @@ type AuthConfig struct {
 	SMTPUsername                 string `yaml:"smtp_username" json:"smtp_username"`
 	SMTPPassword                 string `yaml:"smtp_password" json:"-"`
 	SMTPFrom                     string `yaml:"smtp_from" json:"smtp_from"`
+	SMTPUseSSL                   bool   `yaml:"smtp_use_ssl" json:"smtp_use_ssl"`
 }
 
 func (c *AuthConfig) PasswordResetEnabled() bool {
@@ -866,6 +867,9 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_FROM")); value != "" {
 		cfg.Auth.SMTPFrom = value
 	}
+	if value := strings.TrimSpace(os.Getenv("AUTH_SMTP_USE_SSL")); value != "" {
+		cfg.Auth.SMTPUseSSL = strings.EqualFold(value, "true")
+	}
 
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_TENANT_ENABLE_RBAC")); value != "" {
 		v := strings.EqualFold(value, "true")
@@ -1106,3 +1110,4 @@ func loadPromptTemplates(configDir string) (*PromptTemplatesConfig, error) {
 type WebSearchConfig struct {
 	Timeout int `yaml:"timeout" json:"timeout"` // 超时时间（秒）
 }
+
