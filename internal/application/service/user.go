@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+    "mime"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -632,7 +633,7 @@ func (s *userService) RequestPasswordReset(ctx context.Context, email string) er
 	}); err != nil {
 		return err
 	}
-	return s.sendPasswordResetEmail(user.Email, resetToken)
+	return s.sendPasswordResetEmail(ctx, user.Email, resetToken)
 }
 
 func (s *userService) ResetPasswordWithToken(ctx context.Context, tokenValue, newPassword string) error {
@@ -668,7 +669,7 @@ func (s *userService) ResetPasswordWithToken(ctx context.Context, tokenValue, ne
 	return s.tokenRepo.RevokeTokensByUserID(ctx, user.ID)
 }
 
-func (s *userService) sendPasswordResetEmail(email, resetToken string) error {
+func (s *userService) sendPasswordResetEmail(ctx context.Context, email, resetToken string) error {
 	if s.config == nil || s.config.Auth == nil || !s.config.Auth.PasswordResetEnabled() {
 		return errors.New("password reset is not configured")
 	}
@@ -677,28 +678,28 @@ func (s *userService) sendPasswordResetEmail(email, resetToken string) error {
 		frontendBase = "http://localhost"
 	}
 	resetURL := frontendBase + "/login?mode=reset&reset_token=" + url.QueryEscape(resetToken)
-	subject := "WeKnora password reset"
 	expiresInMinutes := int(s.config.Auth.PasswordResetTTL().Minutes())
+	copy := passwordResetEmailCopyForLocale(passwordResetLocaleFromContext(ctx))
 	plainBody := strings.Join([]string{
-		"To reset your password, open the link below:",
+		copy.PlainIntro,
 		resetURL,
 		"",
-		fmt.Sprintf("This link expires in %d minutes.", expiresInMinutes),
-		"If you did not request this change, you can ignore this email.",
+		fmt.Sprintf(copy.ExpiresTemplate, expiresInMinutes),
+		copy.IgnoreNotice,
 	}, "\r\n")
 	htmlBody := strings.Join([]string{
 		"<html><body>",
-		"<p>To reset your password, click the link below:</p>",
-		fmt.Sprintf("<p><a href=\"%s\">Reset your password</a></p>", html.EscapeString(resetURL)),
-		fmt.Sprintf("<p>If the button does not work, copy and paste this link into your browser:<br><a href=\"%s\">%s</a></p>", html.EscapeString(resetURL), html.EscapeString(resetURL)),
-		fmt.Sprintf("<p>This link expires in %d minutes.</p>", expiresInMinutes),
-		"<p>If you did not request this change, you can ignore this email.</p>",
+		fmt.Sprintf("<p>%s</p>", html.EscapeString(copy.HTMLIntro)),
+		fmt.Sprintf("<p><a href=\"%s\">%s</a></p>", html.EscapeString(resetURL), html.EscapeString(copy.ButtonLabel)),
+		fmt.Sprintf("<p>%s<br><a href=\"%s\">%s</a></p>", html.EscapeString(copy.FallbackIntro), html.EscapeString(resetURL), html.EscapeString(resetURL)),
+		fmt.Sprintf("<p>%s</p>", html.EscapeString(fmt.Sprintf(copy.ExpiresTemplate, expiresInMinutes))),
+		fmt.Sprintf("<p>%s</p>", html.EscapeString(copy.IgnoreNotice)),
 		"</body></html>",
 	}, "")
 	boundary := "weknora-password-reset-boundary"
 	message := []byte("From: " + s.config.Auth.SMTPFrom + "\r\n" +
 		"To: " + email + "\r\n" +
-		"Subject: " + subject + "\r\n" +
+		"Subject: " + mime.BEncoding.Encode("UTF-8", copy.Subject) + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: multipart/alternative; boundary=" + boundary + "\r\n\r\n" +
 		"--" + boundary + "\r\n" +
@@ -725,6 +726,81 @@ func passwordResetFrontendBaseURL(cfg *config.Config) string {
 		candidate = strings.TrimSpace(os.Getenv("FRONTEND_BASE_URL"))
 	}
 	return strings.TrimRight(candidate, "/")
+}
+
+type passwordResetEmailCopy struct {
+	Subject         string
+	PlainIntro      string
+	HTMLIntro       string
+	ButtonLabel     string
+	FallbackIntro   string
+	ExpiresTemplate string
+	IgnoreNotice    string
+}
+
+func passwordResetLocaleFromContext(ctx context.Context) string {
+	locale, ok := types.LanguageFromContext(ctx)
+	if !ok {
+		locale = types.DefaultLanguage()
+	}
+	locale = strings.TrimSpace(strings.ToLower(locale))
+	switch {
+	case strings.HasPrefix(locale, "zh"):
+		return "zh-CN"
+	case strings.HasPrefix(locale, "en"):
+		return "en-US"
+	case strings.HasPrefix(locale, "ko"):
+		return "ko-KR"
+	case strings.HasPrefix(locale, "ru"):
+		return "ru-RU"
+	default:
+		return types.DefaultLanguage()
+	}
+}
+
+func passwordResetEmailCopyForLocale(locale string) passwordResetEmailCopy {
+	switch locale {
+	case "zh-CN":
+		return passwordResetEmailCopy{
+			Subject:         "Binqsoft 密码重置",
+			PlainIntro:      "请打开下面的链接重置您的密码：",
+			HTMLIntro:       "请点击下面的链接重置您的密码：",
+			ButtonLabel:     "重置密码",
+			FallbackIntro:   "如果按钮无法点击，请将以下链接复制到浏览器中打开：",
+			ExpiresTemplate: "该链接将在 %d 分钟后失效。",
+			IgnoreNotice:    "如果这不是您本人发起的请求，请忽略此邮件。",
+		}
+	case "ko-KR":
+		return passwordResetEmailCopy{
+			Subject:         "Binqsoft 비밀번호 재설정",
+			PlainIntro:      "아래 링크를 열어 비밀번호를 재설정하세요:",
+			HTMLIntro:       "아래 링크를 클릭해 비밀번호를 재설정하세요:",
+			ButtonLabel:     "비밀번호 재설정",
+			FallbackIntro:   "버튼이 작동하지 않으면 아래 링크를 브라우저에 복사해 여세요:",
+			ExpiresTemplate: "이 링크는 %d분 후 만료됩니다.",
+			IgnoreNotice:    "직접 요청한 것이 아니라면 이 이메일을 무시하셔도 됩니다.",
+		}
+	case "ru-RU":
+		return passwordResetEmailCopy{
+			Subject:         "Сброс пароля Binqsoft",
+			PlainIntro:      "Откройте ссылку ниже, чтобы сбросить пароль:",
+			HTMLIntro:       "Нажмите на ссылку ниже, чтобы сбросить пароль:",
+			ButtonLabel:     "Сбросить пароль",
+			FallbackIntro:   "Если кнопка не работает, скопируйте ссылку ниже в браузер:",
+			ExpiresTemplate: "Ссылка истечет через %d мин.",
+			IgnoreNotice:    "Если вы не запрашивали это действие, просто проигнорируйте это письмо.",
+		}
+	default:
+		return passwordResetEmailCopy{
+			Subject:         "Binqsoft password reset",
+			PlainIntro:      "To reset your password, open the link below:",
+			HTMLIntro:       "To reset your password, click the link below:",
+			ButtonLabel:     "Reset your password",
+			FallbackIntro:   "If the button does not work, copy and paste this link into your browser:",
+			ExpiresTemplate: "This link expires in %d minutes.",
+			IgnoreNotice:    "If you did not request this change, you can ignore this email.",
+		}
+	}
 }
 
 // ValidatePassword validates user password
@@ -1411,4 +1487,9 @@ func isUserLookupNotFound(err error) bool {
 	}
 	return errors.Is(err, apprepo.ErrUserNotFound) || strings.Contains(strings.ToLower(err.Error()), "user not found")
 }
+
+
+
+
+
 
