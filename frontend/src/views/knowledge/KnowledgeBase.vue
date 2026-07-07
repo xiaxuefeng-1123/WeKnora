@@ -68,6 +68,90 @@ const uploadSourceRef = ref<InstanceType<typeof KbUploadSourceDropdown> | null>(
 const uploading = ref(false);
 const kbLoading = ref(false);
 const docListLoading = ref(true);
+
+interface ActiveUploadTask {
+  uploadId: string
+  kbId: string
+  fileName?: string
+  progress: number
+  status: 'uploading' | 'success' | 'error'
+  error?: string
+}
+
+const activeUploadTasks = ref<ActiveUploadTask[]>([])
+const uploadCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const UPLOAD_TASK_CLEANUP_DELAY = 4000
+
+const clampUploadProgress = (value: number) => Math.min(100, Math.max(0, Math.round(value)))
+
+const visibleUploadTasks = computed(() =>
+  activeUploadTasks.value.filter(task => task.kbId === kbId.value),
+)
+
+const upsertUploadTask = (task: ActiveUploadTask) => {
+  activeUploadTasks.value = [
+    ...activeUploadTasks.value.filter(item => item.uploadId !== task.uploadId),
+    task,
+  ]
+}
+
+const patchUploadTask = (uploadId: string, patch: Partial<ActiveUploadTask>) => {
+  const index = activeUploadTasks.value.findIndex(task => task.uploadId === uploadId)
+  if (index === -1) return
+  const nextTasks = [...activeUploadTasks.value]
+  nextTasks[index] = { ...nextTasks[index], ...patch }
+  activeUploadTasks.value = nextTasks
+}
+
+const removeUploadTask = (uploadId: string) => {
+  activeUploadTasks.value = activeUploadTasks.value.filter(task => task.uploadId !== uploadId)
+  const timer = uploadCleanupTimers.get(uploadId)
+  if (timer) {
+    clearTimeout(timer)
+    uploadCleanupTimers.delete(uploadId)
+  }
+}
+
+const scheduleUploadTaskCleanup = (uploadId: string) => {
+  const existing = uploadCleanupTimers.get(uploadId)
+  if (existing) {
+    clearTimeout(existing)
+  }
+  const timer = setTimeout(() => removeUploadTask(uploadId), UPLOAD_TASK_CLEANUP_DELAY)
+  uploadCleanupTimers.set(uploadId, timer)
+}
+
+type UploadProgressEventDetail = {
+  uploadId: string
+  kbId?: string | number
+  fileName?: string
+  progress?: number
+  status?: ActiveUploadTask['status']
+  error?: string
+}
+
+const ensureUploadTask = (detail?: UploadProgressEventDetail) => {
+  if (!detail?.uploadId || !detail?.kbId) return null
+  const existing = activeUploadTasks.value.find(task => task.uploadId === detail.uploadId)
+  if (existing) return existing
+  const nextTask: ActiveUploadTask = {
+    uploadId: detail.uploadId,
+    kbId: String(detail.kbId),
+    fileName: detail.fileName,
+    progress: typeof detail.progress === 'number' ? clampUploadProgress(detail.progress) : 0,
+    status: detail.status || 'uploading',
+    error: detail.error,
+  }
+  upsertUploadTask(nextTask)
+  return nextTask
+}
+
+const dispatchUploadProgressEvent = (
+  eventName: 'knowledgeFileUploadStart' | 'knowledgeFileUploadProgress' | 'knowledgeFileUploadComplete',
+  detail: UploadProgressEventDetail,
+) => {
+  window.dispatchEvent(new CustomEvent(eventName, { detail }))
+}
 const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
 const isWiki = computed(() => !!kbInfo.value?.indexing_strategy?.wiki_enabled);
 const validTabs = ['documents', 'wiki', 'graph'] as const
@@ -1016,6 +1100,41 @@ const handleFileUploaded = (event: CustomEvent) => {
   }
 };
 
+const handleUploadStartEvent = (event: Event) => {
+  const detail = (event as CustomEvent<UploadProgressEventDetail>).detail
+  if (!detail?.uploadId || !detail?.kbId) return
+  upsertUploadTask({
+    uploadId: detail.uploadId,
+    kbId: String(detail.kbId),
+    fileName: detail.fileName,
+    progress: typeof detail.progress === 'number' ? clampUploadProgress(detail.progress) : 0,
+    status: detail.status || 'uploading',
+    error: detail.error,
+  })
+}
+
+const handleUploadProgressEvent = (event: Event) => {
+  const detail = (event as CustomEvent<UploadProgressEventDetail>).detail
+  if (!detail?.uploadId || typeof detail.progress !== 'number') return
+  if (!ensureUploadTask(detail)) return
+  patchUploadTask(detail.uploadId, {
+    progress: clampUploadProgress(detail.progress),
+  })
+}
+
+const handleUploadCompleteEvent = (event: Event) => {
+  const detail = (event as CustomEvent<UploadProgressEventDetail>).detail
+  if (!detail?.uploadId) return
+  const progress = typeof detail.progress === 'number' ? clampUploadProgress(detail.progress) : 100
+  if (!ensureUploadTask({ ...detail, progress })) return
+  patchUploadTask(detail.uploadId, {
+    progress,
+    status: detail.status || 'success',
+    error: detail.error,
+  })
+  scheduleUploadTaskCleanup(detail.uploadId)
+}
+
 
 // 监听从菜单触发的URL导入事件
 const handleOpenURLImportDialog = (event: CustomEvent) => {
@@ -1079,15 +1198,23 @@ onMounted(() => {
   loadKnowledgeList();
   editorResources.ensureParserEngines();
 
+  window.addEventListener('knowledgeFileUploadStart', handleUploadStartEvent as EventListener);
+  window.addEventListener('knowledgeFileUploadProgress', handleUploadProgressEvent as EventListener);
+  window.addEventListener('knowledgeFileUploadComplete', handleUploadCompleteEvent as EventListener);
   window.addEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
   window.addEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.addEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
 });
 
 onUnmounted(() => {
+  window.removeEventListener('knowledgeFileUploadStart', handleUploadStartEvent as EventListener);
+  window.removeEventListener('knowledgeFileUploadProgress', handleUploadProgressEvent as EventListener);
+  window.removeEventListener('knowledgeFileUploadComplete', handleUploadCompleteEvent as EventListener);
   window.removeEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
   window.removeEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.removeEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
+  uploadCleanupTimers.forEach(timer => clearTimeout(timer))
+  uploadCleanupTimers.clear()
   stopMovePoll();
   if (timeout !== null) {
     clearTimeout(timeout);
@@ -1584,7 +1711,17 @@ const executeUploadBatch = async (
     return !!relativePath && relativePath.split('/').length > 2;
   });
 
-  for (const file of files) {
+  for (let index = 0; index < files.length; index++) {
+    const file = files[index];
+    const uploadId = `${targetKbId}-${Date.now()}-${index}`;
+    const displayFileName = getFolderUploadFileName(file) || file.name;
+    dispatchUploadProgressEvent('knowledgeFileUploadStart', {
+      uploadId,
+      kbId: targetKbId,
+      fileName: displayFileName,
+      progress: 0,
+      status: 'uploading',
+    });
     try {
       const uploadData: {
         file: File
@@ -1599,32 +1736,69 @@ const executeUploadBatch = async (
         uploadData.process_config = options.processConfig;
       }
 
-      const responseData: any = await uploadKnowledgeFile(targetKbId, uploadData);
+      const responseData: any = await uploadKnowledgeFile(
+        targetKbId,
+        uploadData,
+        (progressEvent: any) => {
+          const total = Number(progressEvent?.total || 0);
+          const loaded = Number(progressEvent?.loaded || 0);
+          if (!total || total <= 0) return;
+          dispatchUploadProgressEvent('knowledgeFileUploadProgress', {
+            uploadId,
+            kbId: targetKbId,
+            fileName: displayFileName,
+            progress: (loaded / total) * 100,
+          });
+        },
+      );
       const isSuccess = responseData?.success || responseData?.code === 200 || responseData?.status === 'success' || (!responseData?.error && responseData);
       if (isSuccess) {
         successCount++;
+        dispatchUploadProgressEvent('knowledgeFileUploadComplete', {
+          uploadId,
+          kbId: targetKbId,
+          fileName: displayFileName,
+          progress: 100,
+          status: 'success',
+        });
       } else {
         failCount++;
+        let errorMessage = t('knowledgeBase.uploadFailed');
+        if (responseData?.error?.message) {
+          errorMessage = responseData.error.message;
+        } else if (responseData?.message) {
+          errorMessage = responseData.message;
+        }
+        if (responseData?.code === 'duplicate_file' || responseData?.error?.code === 'duplicate_file') {
+          errorMessage = t('knowledgeBase.fileExists');
+        }
+        dispatchUploadProgressEvent('knowledgeFileUploadComplete', {
+          uploadId,
+          kbId: targetKbId,
+          fileName: displayFileName,
+          progress: 100,
+          status: 'error',
+          error: errorMessage,
+        });
         if (totalCount === 1) {
-          let errorMessage = t('knowledgeBase.uploadFailed');
-          if (responseData?.error?.message) {
-            errorMessage = responseData.error.message;
-          } else if (responseData?.message) {
-            errorMessage = responseData.message;
-          }
-          if (responseData?.code === 'duplicate_file' || responseData?.error?.code === 'duplicate_file') {
-            errorMessage = t('knowledgeBase.fileExists');
-          }
           MessagePlugin.error(errorMessage);
         }
       }
     } catch (error: any) {
       failCount++;
+      let errorMessage = error?.error?.message || error?.message || t('knowledgeBase.uploadFailed');
+      if (error?.code === 'duplicate_file') {
+        errorMessage = t('knowledgeBase.fileExists');
+      }
+      dispatchUploadProgressEvent('knowledgeFileUploadComplete', {
+        uploadId,
+        kbId: targetKbId,
+        fileName: displayFileName,
+        progress: 100,
+        status: 'error',
+        error: errorMessage,
+      });
       if (totalCount === 1) {
-        let errorMessage = error?.error?.message || error?.message || t('knowledgeBase.uploadFailed');
-        if (error?.code === 'duplicate_file') {
-          errorMessage = t('knowledgeBase.fileExists');
-        }
         MessagePlugin.error(errorMessage);
       }
     }
@@ -1648,6 +1822,14 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
   }
 
   const tagIdsToUpload = selectedTagIds.value.length > 0 ? [...selectedTagIds.value] : undefined;
+  const uploadId = `${targetKbId}-url-${Date.now()}`;
+  dispatchUploadProgressEvent('knowledgeFileUploadStart', {
+    uploadId,
+    kbId: targetKbId,
+    fileName: url,
+    progress: 0,
+    status: 'uploading',
+  });
   try {
     const responseData: any = await createKnowledgeFromURL(targetKbId, {
       url,
@@ -1659,6 +1841,13 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
     }));
     const isSuccess = responseData?.success || responseData?.code === 200 || responseData?.status === 'success' || (!responseData?.error && responseData);
     if (isSuccess) {
+      dispatchUploadProgressEvent('knowledgeFileUploadComplete', {
+        uploadId,
+        kbId: targetKbId,
+        fileName: url,
+        progress: 100,
+        status: 'success',
+      });
       MessagePlugin.success(t('knowledgeBase.urlImportSuccess'));
     } else {
       let errorMessage = t('knowledgeBase.urlImportFailed');
@@ -1670,6 +1859,14 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
       if (responseData?.code === 'duplicate_url' || responseData?.error?.code === 'duplicate_url') {
         errorMessage = t('knowledgeBase.urlExists');
       }
+      dispatchUploadProgressEvent('knowledgeFileUploadComplete', {
+        uploadId,
+        kbId: targetKbId,
+        fileName: url,
+        progress: 100,
+        status: 'error',
+        error: errorMessage,
+      });
       MessagePlugin.error(errorMessage);
     }
   } catch (error: any) {
@@ -1677,6 +1874,14 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
     if (error?.code === 'duplicate_url') {
       errorMessage = t('knowledgeBase.urlExists');
     }
+    dispatchUploadProgressEvent('knowledgeFileUploadComplete', {
+      uploadId,
+      kbId: targetKbId,
+      fileName: url,
+      progress: 100,
+      status: 'error',
+      error: errorMessage,
+    });
     MessagePlugin.error(errorMessage);
   }
 };
@@ -2372,6 +2577,40 @@ async function createNewSession(value: string): Promise<void> {
                     trigger-class="content-bar-icon-btn" data-guide="kb-detail-add-doc"
                     :tooltip="t('knowledgeBase.addDocument')" placement="bottom-right" @files="handleUploadSourceFiles"
                     @url="handleUploadSourceUrl" @manual="handleManualCreate" />
+                </div>
+              </div>
+              <div v-if="visibleUploadTasks.length" class="kb-upload-progress-panel">
+                <div v-for="task in visibleUploadTasks" :key="task.uploadId" class="kb-upload-progress-item">
+                  <div class="kb-upload-progress-main">
+                    <div class="kb-upload-progress-text">
+                      <div class="kb-upload-progress-title">
+                        {{ task.fileName || $t('knowledgeBase.uploadFile') }}
+                      </div>
+                      <div class="kb-upload-progress-subtitle">
+                        {{
+                          task.status === 'uploading'
+                            ? $t('uploadConfirm.uploading', { current: Math.min(100, task.progress), total: 100 })
+                            : task.status === 'success'
+                              ? $t('knowledgeBase.uploadSuccess')
+                              : (task.error || $t('knowledgeBase.uploadFailed'))
+                        }}
+                      </div>
+                    </div>
+                    <div class="kb-upload-progress-value">
+                      <t-icon
+                        :name="task.status === 'success' ? 'check-circle-filled' : task.status === 'error' ? 'error-circle-filled' : 'upload'"
+                        size="16px"
+                      />
+                      <span>{{ task.progress }}%</span>
+                    </div>
+                  </div>
+                  <div class="kb-upload-progress-bar">
+                    <div
+                      class="kb-upload-progress-bar-inner"
+                      :class="`is-${task.status}`"
+                      :style="{ width: `${task.progress}%` }"
+                    ></div>
+                  </div>
                 </div>
               </div>
               <div class="doc-scroll-container"
@@ -3292,6 +3531,87 @@ async function createNewSession(value: string): Promise<void> {
         box-shadow: none !important;
       }
     }
+  }
+}
+
+.kb-upload-progress-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 10px;
+  background: var(--td-bg-color-container);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.kb-upload-progress-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kb-upload-progress-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kb-upload-progress-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.kb-upload-progress-title {
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-upload-progress-subtitle {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  margin-top: 2px;
+  word-break: break-word;
+}
+
+.kb-upload-progress-value {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kb-upload-progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.kb-upload-progress-bar-inner {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.2s ease;
+  background: linear-gradient(90deg, var(--td-brand-color-active) 0%, var(--td-brand-color) 100%);
+
+  &.is-success {
+    background: linear-gradient(90deg, var(--td-success-color-5) 0%, var(--td-success-color-6) 100%);
+  }
+
+  &.is-error {
+    background: linear-gradient(90deg, var(--td-error-color-5) 0%, var(--td-error-color-6) 100%);
   }
 }
 

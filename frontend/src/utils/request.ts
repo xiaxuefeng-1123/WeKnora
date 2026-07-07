@@ -13,7 +13,7 @@ const BASE_URL = getApiBaseUrl();
 // 创建Axios实例
 const instance = axios.create({
   baseURL: BASE_URL, // 使用配置的API基础URL
-  timeout: 30000, // 请求超时时间
+  timeout: 60000, // 请求超时时间
   headers: {
     "Content-Type": "application/json",
     "X-Request-ID": `${generateRandomString(12)}`,
